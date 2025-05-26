@@ -49,13 +49,13 @@ public:
         Q32 w_new = INT16_TO_Q32(v) + Q32_MUL(DC_ALPHA, w);
         int16_t filtered = Q32_TO_INT16(w_new-w);
         w = w_new;
+        return filtered;
     }
 
-    int16_t get_DC() {
+    int16_t get_dc() {
         return Q32_TO_INT16(Q32_MUL(ONE_MINUS_DC_ALPHA, w));
     }
 
 private:
     Q32 w;
-    
-}
+};

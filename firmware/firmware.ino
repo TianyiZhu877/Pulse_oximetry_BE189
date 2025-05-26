@@ -1,11 +1,14 @@
 #include <util/atomic.h>
+#include "filters.h"
+#include "types.h"
+
 #define RED   0
 #define IR    1
 
 // pin definition
 const int sample_pin = A0;
-const int red_led_pin = 3;
-const int ir_led_pin = 2;
+const int red_led_pin = 7;
+const int ir_led_pin = 6;
 
 // constant for sampling
 const uint8_t prescaler = 64;
@@ -20,23 +23,20 @@ const float CPU_F = 16e6;
 const int isr_period = red_divider * ir_divider * 2;
 uint16_t isr_count = 0;
 // global variables for loop
-long last_red_sample  = 0;
-long last_ir_sample  = 0;
+long last_red_sample_time  = 0;
+long last_ir_sample_time  = 0;
+sample_t ir_local, red_local;
 
 // shared buffer sampling timer isr and loop
-volatile long ir_t;
-volatile int ir_v;
-volatile long red_t;
-volatile int red_v;
+volatile sample_t ir_sample, red_sample;
 
-inline void sample(uint8_t led) {
-  if (led == RED) {
-    red_v  = analogRead(sample_pin);
-    red_t = millis();
-  } else if (led == IR) {
-    ir_v  = analogRead(sample_pin);
-    ir_t = millis();
-  }
+// filter classes
+DCFilter red_dc_filter;
+DCFilter ir_dc_filter;
+
+inline void sample(sample_t& sample) {
+  sample.v  = analogRead(sample_pin);
+  sample.t = millis();
 }
 
 inline void switching(uint8_t led) {
@@ -49,6 +49,15 @@ inline void switching(uint8_t led) {
   }
 }
 
+inline void filter(sample_t& sample, DCFilter& dc_filter) {
+//  Serial.print("before filtering");
+//  Serial.print(sample.v);
+  sample.v = dc_filter.step(sample.v);
+  sample.dc = dc_filter.get_dc();
+//  Serial.print(", after filtering: ");
+//  Serial.println(sample.v);
+}
+
 
 // sampling ISR
 ISR(TIMER1_COMPA_vect) {
@@ -56,12 +65,23 @@ ISR(TIMER1_COMPA_vect) {
   uint8_t switching_led = (isr_count+1)%2;
   int   sample_count = isr_count/2;
   int   switch_count = (isr_count+1)/2;
-   
+
+  sample_t new_sample;
   if (sample_count % dividers[sampling_led] == 0) {
-    sample(sampling_led);
+    sample(new_sample);
   }
   if (switch_count % dividers[switching_led] == 0) {
     switching(switching_led);
+  }
+  if (sample_count % dividers[sampling_led] == 0) {
+    if (sampling_led == RED) {
+      filter(new_sample, red_dc_filter);
+      red_sample = new_sample;
+    }
+    else if (sampling_led == IR) {
+      filter(new_sample, ir_dc_filter);
+      ir_sample = new_sample;
+    }
   }
   
   isr_count += 1;
@@ -69,25 +89,28 @@ ISR(TIMER1_COMPA_vect) {
     isr_count = 0;
 }
 
-void serial_publish_task(bool publish_t = false) {
+void serial_publish_task(bool publish_t_dc = false) {
   
-  if ((red_t_local != last_red_sample) or (ir_t_local != last_ir_sample)) {
-    last_red_sample = red_t_local;
-    last_ir_sample = ir_t_local;
-    if (publish_t) {
-      Serial.print(red_t_local);
-      Serial.print(',');
-    }
-    Serial.print(red_v_local);
+  if (publish_t_dc) {
+    Serial.print(red_local.t);
     Serial.print(',');
-
-    if (publish_t) {
-      Serial.print(ir_t_local);
-      Serial.print(',');
-    }
-
-    Serial.println(ir_v_local);
+    Serial.print(red_local.dc);
+    Serial.print(',');
   }
+  Serial.print(red_local.v);
+  Serial.print(',');
+
+  if (publish_t_dc) {
+    Serial.print(ir_local.t);
+    Serial.print(',');
+    Serial.print(ir_local.dc);
+    Serial.print(',');
+  }
+  Serial.print(ir_local.v);
+  Serial.print(',');
+  
+  Serial.println("32, -32");
+
 }
 
 
@@ -124,16 +147,21 @@ void setup() {
 
 void loop() {
   // put your main code here, to run repeatedly:
-  long ir_t_local, red_t_local;
-  int red_v_local, ir_v_local;
   ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
-    red_v_local = red_v;
-    red_t_local = red_t;
-    ir_v_local = ir_v;
-    ir_t_local = ir_t;
+    red_local.t = red_sample.t;
+    red_local.dc = red_sample.dc;
+    red_local.v = red_sample.v;
+    ir_local.t = ir_sample.t;
+    ir_local.dc = ir_sample.dc;
+    ir_local.v = ir_sample.v;
   }
-  
 
-  serial_publish_task();
+
+  if ((red_local.t != last_red_sample_time) or (ir_local.t != last_red_sample_time)) {
+    last_red_sample_time = red_local.t;
+    last_ir_sample_time = ir_local.t;
+    
+    serial_publish_task();
+  }
   
 }
