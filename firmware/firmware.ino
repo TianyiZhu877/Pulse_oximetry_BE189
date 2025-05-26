@@ -69,6 +69,26 @@ ISR(TIMER1_COMPA_vect) {
     isr_count = 0;
 }
 
+void serial_publish_task(bool publish_t = false) {
+  
+  if ((red_t_local != last_red_sample) or (ir_t_local != last_ir_sample)) {
+    last_red_sample = red_t_local;
+    last_ir_sample = ir_t_local;
+    if (publish_t) {
+      Serial.print(red_t_local);
+      Serial.print(',');
+    }
+    Serial.print(red_v_local);
+    Serial.print(',');
+
+    if (publish_t) {
+      Serial.print(ir_t_local);
+      Serial.print(',');
+    }
+
+    Serial.println(ir_v_local);
+  }
+}
 
 
 void setup() {
@@ -113,11 +133,7 @@ void loop() {
     ir_t_local = ir_t;
   }
   
-  if ((red_t_local != last_red_sample) or (ir_t_local != last_ir_sample)) {
-    last_red_sample = red_t_local;
-    last_ir_sample = ir_t_local;
-    Serial.print(red_v_local);
-    Serial.print(',');
-    Serial.println(ir_v_local);
-  }
+
+  serial_publish_task();
+  
 }
