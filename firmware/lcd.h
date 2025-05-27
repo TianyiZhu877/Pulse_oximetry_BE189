@@ -1,3 +1,6 @@
+#ifndef LCD_H
+#define LCD_H
+
 #include <LiquidCrystal_I2C.h>
 #include <Wire.h>
 
@@ -112,3 +115,5 @@ void lcd_set_up() {
   lcd.createChar(6, line6);
   lcd.createChar(7, line7);
 }
+
+#endif

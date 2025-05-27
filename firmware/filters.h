@@ -1,6 +1,10 @@
+#ifndef FILTERS_H
+#define FILTERS_H
+
 #include <math.h>
 #define PI 3.14159265358979323846f
 
+// first order Butterworth low pass filter
 class butterWorthLPF {
 public:
     butterWorthLPF(float fc, float fs) {
@@ -52,3 +56,5 @@ private:
     float one_minus_alpha;
 
 };
+
+#endif
