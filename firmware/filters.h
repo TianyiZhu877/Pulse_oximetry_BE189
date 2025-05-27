@@ -1,3 +1,33 @@
+#include <math.h>
+#define PI 3.14159265358979323846f
+
+class butterWorthLPF {
+public:
+    butterWorthLPF(float fc, float fs) {
+        float K  = tanf(PI * fc / fs);
+        float inv = 1.0f / (1.0f + K);   
+
+        cf0 = K * inv;        
+        cf1 = (1.0f - K) * inv;  
+    }
+
+    butterWorthLPF() {  
+    // default fc = 5, fs = 80
+        cf0 = 0.16591068104035050501;        
+        cf1 = 0.66817863791929898998;  
+    }
+    
+    float step(float x) //class II 
+    {
+        v0 = v1;
+        v1 = x * cf0  + cf1 * v0;
+        return (v0 + v1);
+    }
+
+private:
+    float v0, v1, cf0, cf1;
+};
+
 
 class DCFilter {
 public:

@@ -37,6 +37,8 @@ volatile sample_t ir_sample, red_sample;
 // filter classes
 DCFilter red_dc_filter(0.96);
 DCFilter ir_dc_filter(0.96);
+butterWorthLPF red_lpf(6, 80);
+butterWorthLPF ir_lpf(6, 80);
 
 // variables for display task
 const int8_t    max_display_amplitude = 16;
@@ -65,8 +67,9 @@ inline void switching(uint8_t led) {
   }
 }
 
-inline void filter(sample_t& sample, DCFilter& dc_filter) {
-  sample.v = dc_filter.step(sample.v);
+inline void filter(sample_t& sample, DCFilter& dc_filter, butterWorthLPF& lpf) {
+  float v_temp = lpf.step(sample.v);
+  sample.v = dc_filter.step(v_temp);
 //  Serial.print("\n in filter v ");
 //  Serial.println(sample.v);
   sample.dc = dc_filter.get_dc();
@@ -90,11 +93,11 @@ ISR(TIMER1_COMPA_vect) {
   
   if (sample_count % dividers[sampling_led] == 0) {
     if (sampling_led == RED) {
-      filter(new_sample, red_dc_filter);
+      filter(new_sample, red_dc_filter, red_lpf);
       red_sample = new_sample;
     }
     else if (sampling_led == IR) {
-       filter(new_sample, ir_dc_filter);
+       filter(new_sample, ir_dc_filter, ir_lpf);
        ir_sample = new_sample;
     }
   }
@@ -218,7 +221,7 @@ void loop() {
   }
 
   if (red_update || ir_update) {    
-    serial_publish_task();
+    serial_publish_task(true);
   }
   
 }
