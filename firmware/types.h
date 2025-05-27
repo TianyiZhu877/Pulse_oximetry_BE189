@@ -1,5 +1,5 @@
 struct sample_t {
-    long t;
-    int v;
-    int dc;
+    uint32_t t;
+    float v;
+    float dc;
 };

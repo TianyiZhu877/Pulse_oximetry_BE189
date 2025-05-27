@@ -1,9 +1,13 @@
 #include <util/atomic.h>
 #include "filters.h"
 #include "types.h"
+#include "lcd.h"
 
 #define RED   0
 #define IR    1
+
+const bool inverted = true;
+const int analog_max = 1023;
 
 // pin definition
 const int sample_pin = A0;
@@ -23,19 +27,31 @@ const float CPU_F = 16e6;
 const int isr_period = red_divider * ir_divider * 2;
 uint16_t isr_count = 0;
 // global variables for loop
-long last_red_sample_time  = 0;
-long last_ir_sample_time  = 0;
+uint32_t last_red_sample_time  = 0;
+uint32_t last_ir_sample_time  = 0;
 sample_t ir_local, red_local;
 
 // shared buffer sampling timer isr and loop
 volatile sample_t ir_sample, red_sample;
 
 // filter classes
-DCFilter red_dc_filter;
-DCFilter ir_dc_filter;
+DCFilter red_dc_filter(0.96);
+DCFilter ir_dc_filter(0.96);
+
+// variables for display task
+const int8_t    max_display_amplitude = 16;
+const uint16_t  wave_display_period = 2000/16;
+uint32_t last_display_update = 0;
+uint8_t wave_frontier_column = 0;
+
 
 inline void sample(sample_t& sample) {
-  sample.v  = analogRead(sample_pin);
+  int sample_v = analogRead(sample_pin);
+
+  if (inverted)
+    sample_v = analog_max - sample_v;
+
+  sample.v  = static_cast<float>(sample_v);
   sample.t = millis();
 }
 
@@ -50,12 +66,10 @@ inline void switching(uint8_t led) {
 }
 
 inline void filter(sample_t& sample, DCFilter& dc_filter) {
-//  Serial.print("before filtering");
-//  Serial.print(sample.v);
   sample.v = dc_filter.step(sample.v);
-  sample.dc = dc_filter.get_dc();
-//  Serial.print(", after filtering: ");
+//  Serial.print("\n in filter v ");
 //  Serial.println(sample.v);
+  sample.dc = dc_filter.get_dc();
 }
 
 
@@ -73,14 +87,15 @@ ISR(TIMER1_COMPA_vect) {
   if (switch_count % dividers[switching_led] == 0) {
     switching(switching_led);
   }
+  
   if (sample_count % dividers[sampling_led] == 0) {
     if (sampling_led == RED) {
       filter(new_sample, red_dc_filter);
       red_sample = new_sample;
     }
     else if (sampling_led == IR) {
-      filter(new_sample, ir_dc_filter);
-      ir_sample = new_sample;
+       filter(new_sample, ir_dc_filter);
+       ir_sample = new_sample;
     }
   }
   
@@ -88,6 +103,36 @@ ISR(TIMER1_COMPA_vect) {
   if (isr_count == isr_period) 
     isr_count = 0;
 }
+
+
+void display_task(sample_t& sample) {
+  if (sample.t > last_display_update + wave_display_period) {
+    last_display_update = sample.t;
+    lcd.setCursor((wave_frontier_column+1) & 0xf, 0);
+    lcd.write(" ");
+    lcd.setCursor((wave_frontier_column+1) & 0xf, 1);
+    lcd.write(" ");
+
+    int16_t v_corrected = static_cast<int16_t>(sample.v) + max_display_amplitude;
+    if (v_corrected < 0)
+      v_corrected = 0;
+    if (v_corrected > max_display_amplitude*2-1)
+      v_corrected = max_display_amplitude*2-1;
+    v_corrected = v_corrected * 16 / (max_display_amplitude * 2);
+    uint8_t write_line = v_corrected % 16; 
+    if (write_line <= 7)
+      lcd.setCursor(wave_frontier_column, 1);
+    else
+      lcd.setCursor(wave_frontier_column, 0);
+
+    lcd.write(write_line%8);
+
+    
+    wave_frontier_column = (wave_frontier_column+1) & 0xf;
+  }
+
+}
+
 
 void serial_publish_task(bool publish_t_dc = false) {
   
@@ -106,10 +151,7 @@ void serial_publish_task(bool publish_t_dc = false) {
     Serial.print(ir_local.dc);
     Serial.print(',');
   }
-  Serial.print(ir_local.v);
-  Serial.print(',');
-  
-  Serial.println("32, -32");
+  Serial.println(ir_local.v);
 
 }
 
@@ -143,6 +185,8 @@ void setup() {
   TIMSK1 |= (1 << OCIE1A);
 
   interrupts();             // Enable interrupts
+
+  lcd_set_up();
 }
 
 void loop() {
@@ -156,11 +200,24 @@ void loop() {
     ir_local.v = ir_sample.v;
   }
 
+  bool red_update = false;
+  bool ir_update = false;
 
-  if ((red_local.t != last_red_sample_time) or (ir_local.t != last_red_sample_time)) {
+  if (red_local.t != last_red_sample_time) {
+    red_update = true;
     last_red_sample_time = red_local.t;
+  }
+
+  if (ir_local.t != last_ir_sample_time) {
+    ir_update = true;
     last_ir_sample_time = ir_local.t;
-    
+  }
+
+  if (ir_update) {
+    display_task(ir_local);
+  }
+
+  if (red_update || ir_update) {    
     serial_publish_task();
   }
   

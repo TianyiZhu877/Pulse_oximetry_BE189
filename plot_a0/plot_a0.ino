@@ -1,12 +1,12 @@
 const int analogPin = A0;               // Analog input pin
-const unsigned long SAMPLE_INTERVAL_MS = 50;  // Sampling interval in milliseconds
+const unsigned long SAMPLE_INTERVAL_MS = 16;  // Sampling interval in milliseconds
 
 void setup() {
-  Serial.begin(9600);                   // Start serial communication
-  pinMode(3, OUTPUT); 
-  pinMode(2, OUTPUT); 
-  digitalWrite(3, HIGH);
-  digitalWrite(2, LOW);
+  Serial.begin(115200);                   // Start serial communication
+  pinMode(7, OUTPUT); 
+  pinMode(6, OUTPUT); 
+  digitalWrite(7, HIGH);
+  digitalWrite(6, LOW);
 }
 
 void loop() {
@@ -18,6 +18,6 @@ void loop() {
 
     int rawValue = analogRead(analogPin);           // Read analog input
     float voltage = rawValue * (5.0 / 1023.0);       // Convert to voltage
-    Serial.println(voltage);                        // Print voltage to Serial Plotter
+    Serial.println(1023-rawValue);                        // Print voltage to Serial Plotter
   }
 }
