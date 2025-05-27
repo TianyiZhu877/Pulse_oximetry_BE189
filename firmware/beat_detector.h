@@ -10,7 +10,7 @@
 #define SAMPLE_PERIOD  12.5
 
 #define     DROPPING_DEADZONE   5
-#define     MIN_THRES           0.2
+#define     MIN_THRES           -1
 #define     MAX_THRES           64
 #define     V_MAX_CAP           64
 #define    UPWARD_SLOP_THRES    0.06
@@ -18,8 +18,8 @@
 #define     PERIOD_ALPHA_OVER_SAMPLE_PERIOD     0.048    // 0.6/12.5
 #define     NO_BEAT_TIMEOUT     2000
 #define      MASK_DELAY         200
-#define     THRES_DROP_FACTOR   1.2
-#define     THRES_DECAY_FACTOR  0.98
+#define     THRES_DROP_FACTOR   1.6
+#define     THRES_DECAY_FACTOR  0.94
 
 #ifndef min
 #define min(a,b) \

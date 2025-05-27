@@ -2,7 +2,9 @@
 #include "filters.h"
 #include "types.h"
 #include "lcd.h"
+#include "beat_detector.h"
 
+#define FLOAT_INVALID -0.123456
 #define RED   0
 #define IR    1
 
@@ -40,9 +42,26 @@ DCFilter ir_dc_filter(0.96);
 butterWorthLPF red_lpf(6, 80);
 butterWorthLPF ir_lpf(6, 80);
 
+// beat detectors
+beatDetector ir_beat_detector;
+
+//buttons 
+const uint16_t debouncingDelay = 300;
+uint32_t last_button_time = 0;
+const uint8_t ALL_BUTTONS = (1<<PD2) | (1<<PD3);
+const uint8_t DISPLAY_MODE_BUTTON = 1<<PD2;
+const uint8_t PERIOD_MODE_BUTTON = 1<<PD3;
+bool prev_button_pressed = false;
+
+//states
+#define WAVE_MODE 0
+#define STATS_MODE 1
+uint8_t display_mode = STATS_MODE;
+
 // variables for display task
 const int8_t    max_display_amplitude = 16;
 const uint16_t  wave_display_period = 2000/16;
+const uint16_t stats_display_period = 20;
 uint32_t last_display_update = 0;
 uint8_t wave_frontier_column = 0;
 
@@ -108,37 +127,71 @@ ISR(TIMER1_COMPA_vect) {
 }
 
 
-void display_task(sample_t& sample) {
-  if (sample.t > last_display_update + wave_display_period) {
-    last_display_update = sample.t;
-    lcd.setCursor((wave_frontier_column+1) & 0xf, 0);
-    lcd.write(" ");
-    lcd.setCursor((wave_frontier_column+1) & 0xf, 1);
-    lcd.write(" ");
+void display_task(sample_t& sample, beatDetector& beat_detector) {
+  if (display_mode == WAVE_MODE) {
+    if (sample.t > last_display_update + wave_display_period) {
+      last_display_update = sample.t;
+      lcd.setCursor((wave_frontier_column+1) & 0xf, 0);
+      lcd.write(" ");
+      lcd.setCursor((wave_frontier_column+1) & 0xf, 1);
+      lcd.write(" ");
 
-    int16_t v_corrected = static_cast<int16_t>(sample.v) + max_display_amplitude;
-    if (v_corrected < 0)
-      v_corrected = 0;
-    if (v_corrected > max_display_amplitude*2-1)
-      v_corrected = max_display_amplitude*2-1;
-    v_corrected = v_corrected * 16 / (max_display_amplitude * 2);
-    uint8_t write_line = v_corrected % 16; 
-    if (write_line <= 7)
-      lcd.setCursor(wave_frontier_column, 1);
-    else
-      lcd.setCursor(wave_frontier_column, 0);
+      int16_t v_corrected = static_cast<int16_t>(sample.v) + max_display_amplitude;
+      if (v_corrected < 0)
+        v_corrected = 0;
+      if (v_corrected > max_display_amplitude*2-1)
+        v_corrected = max_display_amplitude*2-1;
+      v_corrected = v_corrected * 16 / (max_display_amplitude * 2);
+      uint8_t write_line = v_corrected % 16; 
+      if (write_line <= 7)
+        lcd.setCursor(wave_frontier_column, 1);
+      else
+        lcd.setCursor(wave_frontier_column, 0);
 
-    lcd.write(write_line%8);
+      lcd.write(write_line%8);
 
-    
-    wave_frontier_column = (wave_frontier_column+1) & 0xf;
+      
+      wave_frontier_column = (wave_frontier_column+1) & 0xf;
+    }
   }
+  else if (display_mode == STATS_MODE) {
+    if (sample.t > last_display_update + stats_display_period) {
+      last_display_update = sample.t;
+
+      if (beat_detector.period > 60) {
+        uint16_t bpm = static_cast<uint16_t>(60000.0/beat_detector.period);
+        if (bpm >= 100)
+          lcd.setCursor(5, 0);
+        else 
+          lcd.setCursor(6, 0);
+
+        lcd.print(String(bpm));
+      } else {
+        lcd.setCursor(5, 0);
+        lcd.print("NaN");
+      }
+
+      
+      lcd.setCursor(4, 0);
+      if (beat_detector.state == STATE_UPWARD)
+        lcd.write('o');
+      else
+        lcd.write('@');
+
+
+    }
+  }
+
 
 }
 
 
-void serial_publish_task(bool publish_t_dc = false) {
-  
+void serial_publish_task(bool publish_t_dc = false, float extra_value = FLOAT_INVALID) {
+  if (extra_value != FLOAT_INVALID) {
+    Serial.print(extra_value);
+    Serial.print(',');
+  }
+
   if (publish_t_dc) {
     Serial.print(red_local.t);
     Serial.print(',');
@@ -158,6 +211,48 @@ void serial_publish_task(bool publish_t_dc = false) {
 
 }
 
+void set_stats_ui_background() {
+  lcd.setCursor(0, 0);
+  lcd.print("BPM            ");
+  lcd.setCursor(0, 1);
+  lcd.print("SpO2           ");
+}
+
+void button_service_task() {
+  uint32_t currTime = millis();
+  uint8_t buttons_pind = ~PIND;
+  bool current_button = buttons_pind & ALL_BUTTONS;
+
+  if ((!prev_button_pressed) && current_button && (currTime - last_button_time > debouncingDelay)) {
+    
+    // Serial.print(buttons_pind & ALL_BUTTONS, BIN);
+    // Serial.print(", buttons pressed: ");
+    // Serial.println(buttons_pind, BIN);
+    // if (buttons_pind & HOLD_BUTTON) {
+    //   if (hold_state == UPDATING_DISPLAY)  
+    //     transit_to_holding();
+    //   else if (hold_state == HOLDING) 
+    //     transit_to_updating_display();
+
+    // }
+    
+    if (buttons_pind & DISPLAY_MODE_BUTTON) {
+      if (display_mode == WAVE_MODE)  {
+        set_stats_ui_background();
+        display_mode = STATS_MODE;
+      }
+      else if (display_mode == STATS_MODE) {
+        display_mode = WAVE_MODE;
+      }
+
+    }
+
+    last_button_time = currTime;
+  }
+
+  prev_button_pressed = current_button;
+}
+
 
 void setup() {
   Serial.begin(115200);
@@ -168,6 +263,9 @@ void setup() {
 
   pinMode(red_led_pin, OUTPUT); 
   pinMode(ir_led_pin, OUTPUT); 
+  
+  DDRD &= ~ALL_BUTTONS;
+  PORTD |= ALL_BUTTONS;       // set buttons to input-pullup
 
   // put your setup code here, to run once:
   noInterrupts();           // Disable interrupts during config
@@ -190,6 +288,7 @@ void setup() {
   interrupts();             // Enable interrupts
 
   lcd_set_up();
+  set_stats_ui_background();
 }
 
 void loop() {
@@ -217,11 +316,14 @@ void loop() {
   }
 
   if (ir_update) {
-    display_task(ir_local);
+    ir_beat_detector.step(ir_local);
+    display_task(ir_local, ir_beat_detector);
   }
 
   if (red_update || ir_update) {    
-    serial_publish_task(true);
+    serial_publish_task(false, ir_beat_detector.threshold);
   }
+
+  button_service_task();
   
 }
