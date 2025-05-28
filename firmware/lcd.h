@@ -98,7 +98,6 @@ byte line7[8] = {  // Top line
 };
 
 
-LiquidCrystal_I2C lcd = LiquidCrystal_I2C(LCD_ADDR, nCols, nRows);
 
 void lcd_set_up() {
   Wire.setClock(400000);

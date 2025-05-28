@@ -1,12 +1,15 @@
 #include <util/atomic.h>
 #include "filters.h"
 #include "types.h"
-#include "lcd.h"
+// #include "lcd.h"
+#include "lcd_frame_buffer.h"
 #include "beat_detector.h"
+#include <LiquidCrystal_I2C.h>
 
 #define FLOAT_INVALID -0.123456
 #define RED   0
 #define IR    1
+
 
 const bool inverted = true;
 const int analog_max = 1023;
@@ -58,13 +61,24 @@ bool prev_button_pressed = false;
 #define STATS_MODE 1
 uint8_t display_mode = STATS_MODE;
 
+// lcd params
+int8_t refresh_x_offsets[4] = {0, -2, -4, -6};
+lcdFramebuffer frame_buffer(PXIEL_STANDARD_MODE, PXIEL_STANDARD_MODE);
+const uint8_t LCD_ADDR = 0x27;
+LiquidCrystal_I2C lcd = LiquidCrystal_I2C(LCD_ADDR, NROWS, NCOLS);
+const uint8_t screen_width = frame_buffer.get_screen_width();
+const uint8_t screen_height = 16;
+
 // variables for display task
-const int8_t    max_display_amplitude = 16;
-const uint16_t  wave_display_period = 2000/16;
+uint8_t last_write_y = 0;
+uint8_t wave_frontier_x = 0;
+const int8_t    max_wave_amplitude = 16;
+const uint16_t  wave_display_period = 2000/screen_width;
 const uint16_t stats_display_period = 20;
 uint32_t last_display_update = 0;
-uint8_t wave_frontier_column = 0;
 uint16_t  last_display_period = -1;
+
+
 
 
 inline void sample(sample_t& sample) {
@@ -130,31 +144,79 @@ ISR(TIMER1_COMPA_vect) {
 
 void display_task(sample_t& sample, beatDetector& beat_detector) {
   if (display_mode == WAVE_MODE) {
+//    if (wave_frontier_column == 6) {
+//      line0[0] = 0xff;
+//      lcd.createChar(0, line0);
+//    }
+//    if (wave_frontier_column == 2) {
+//      line0[0] = 0;
+//      lcd.createChar(0, line0);
+//    }
+    
     if (sample.t > last_display_update + wave_display_period) {
       last_display_update = sample.t;
-      lcd.setCursor((wave_frontier_column+1) & 0xf, 0);
-      lcd.write(" ");
-      lcd.setCursor((wave_frontier_column+1) & 0xf, 1);
-      lcd.write(" ");
 
-      int16_t v_corrected = static_cast<int16_t>(sample.v) + max_display_amplitude;
+      // int16_t v_corrected = static_cast<int16_t>(sample.v) + max_wave_amplitude;
+      int16_t v_corrected = static_cast<int16_t>(sample.v) + max_wave_amplitude;
       if (v_corrected < 0)
         v_corrected = 0;
-      if (v_corrected > max_display_amplitude*2-1)
-        v_corrected = max_display_amplitude*2-1;
-      v_corrected = v_corrected * 16 / (max_display_amplitude * 2);
-      uint8_t write_line = v_corrected % 16; 
-      if (write_line <= 7)
-        lcd.setCursor(wave_frontier_column, 1);
-      else
-        lcd.setCursor(wave_frontier_column, 0);
+      if (v_corrected > max_wave_amplitude*2-1)
+        v_corrected = max_wave_amplitude*2-1;
+      v_corrected = v_corrected * 16 / (max_wave_amplitude * 2);
+      uint8_t write_y = 15 - v_corrected % 16; 
 
-      lcd.write(write_line%8);
+      getCellReturn_t coord;
+      frame_buffer.get_cell(coord, wave_frontier_x, last_write_y);
+      frame_buffer.set_pixel(coord);
+      if (write_y > last_write_y)
+        for (uint8_t y = last_write_y+1; y<=write_y; ++y) {
+          frame_buffer.get_cell(coord, 0xFF, y);
+          frame_buffer.set_pixel(coord);
+          // Serial.print(y);
+          // Serial.print(" -> ");
+          // Serial.println(write_y);
+        }
 
+      if (write_y < last_write_y)
+        for (uint8_t y = last_write_y-1; y>write_y; --y) {
+          frame_buffer.get_cell(coord, 0xFF, y);
+          frame_buffer.set_pixel(coord);
+          // Serial.print(y);
+          // Serial.print(" -> ");
+          // Serial.println(write_y);
+        }
+
+      last_write_y = write_y;
+
+
+      // if (coord.pixel_x == 5) {
+      //   // display what's on the screen buffer
+      //   frame_buffer.refresh_screen(lcd);
+      // }
+
+      if (coord.pixel_x == 4) {
+        uint8_t next_cell_x = (coord.cell_x+1)%NCOLS;
+        frame_buffer.clear_cell_in_pixel_buffer(next_cell_x, 0);
+        frame_buffer.clear_cell_in_pixel_buffer(next_cell_x, 1);
+      }
       
-      wave_frontier_column = (wave_frontier_column+1) & 0xf;
+      if (coord.pixel_x == 0) {
+        // would need to refresh the screen
+        frame_buffer.reset_character_buffer();
+        for (uint8_t i=0; i<4; i++) {
+          int8_t cell_x = ((int8_t)(coord.cell_x) + NCOLS + refresh_x_offsets[i])%NCOLS;
+          int8_t old_cell_x = ((int8_t)(coord.cell_x) + NCOLS + refresh_x_offsets[i] - 1)%NCOLS;
+           frame_buffer.move_idx(lcd, old_cell_x, 0, cell_x, 0, i*2);
+           frame_buffer.move_idx(lcd, old_cell_x, 1, cell_x, 1, i*2+1);
+        }
+      }
+
+      wave_frontier_x = wave_frontier_x+1;
+      if (wave_frontier_x > screen_width)
+        wave_frontier_x = 0;
     }
   }
+
   else if (display_mode == STATS_MODE) {
     if (sample.t > last_display_update + stats_display_period ) {
       last_display_update = sample.t;
@@ -220,9 +282,9 @@ void serial_publish_task(bool publish_t_dc = false, float extra_value = FLOAT_IN
 
 void set_stats_ui_background() {
   lcd.setCursor(0, 0);
-  lcd.print("BPM            ");
+  lcd.print("BPM             ");
   lcd.setCursor(0, 1);
-  lcd.print("SpO2           ");
+  lcd.print("SpO2            ");
 }
 
 void button_service_task() {
@@ -249,7 +311,7 @@ void button_service_task() {
         display_mode = STATS_MODE;
       }
       else if (display_mode == STATS_MODE) {
-        wave_frontier_column = 0;
+        wave_frontier_x = 0;
         display_mode = WAVE_MODE;
       }
 
@@ -294,8 +356,11 @@ void setup() {
   TIMSK1 |= (1 << OCIE1A);
 
   interrupts();             // Enable interrupts
-
-  lcd_set_up();
+  
+  Wire.setClock(400000);
+  // Initialize the LCD
+  lcd.init();
+  lcd.backlight();
   set_stats_ui_background();
 }
 
