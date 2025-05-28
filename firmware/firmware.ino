@@ -47,6 +47,7 @@ butterWorthLPF ir_lpf(6, 80);
 
 // beat detectors
 beatDetector ir_beat_detector;
+beatDetector red_beat_detector;
 
 //buttons 
 const uint16_t debouncingDelay = 300;
@@ -77,7 +78,12 @@ const uint16_t  wave_display_period = 1000/screen_width;
 const uint16_t stats_display_period = 20;
 uint32_t last_display_update = 0;
 uint16_t  last_display_period = -1;
-
+uint16_t  current_bpm = 0xffff;
+//spo2
+const float spo2_a = -3.3;
+const float spo2_b = -21.1;
+const float spo2_c = 109.6;
+float last_AC1, last_AC2;
 
 
 
@@ -215,20 +221,17 @@ void display_task(sample_t& sample, beatDetector& beat_detector) {
       
       if (last_display_period != static_cast<uint16_t>(beat_detector.period)) {
         last_display_period = static_cast<uint16_t>(beat_detector.period);
+        lcd.setCursor(5, 0);
         if (beat_detector.period > 60) {
-          uint16_t bpm = static_cast<uint16_t>(60000.0/beat_detector.period);
-          if (bpm >= 100)
-            lcd.setCursor(5, 0);
-          else {
-            lcd.setCursor(5, 0);
-            lcd.write(' ');
-            lcd.setCursor(6, 0);
-          }
-  
-          lcd.print(String(bpm));
+          current_bpm = static_cast<uint16_t>(60000.0/beat_detector.period);
+          // bpm_valid = true;
+          if (current_bpm < 100) lcd.write(' ');
+          lcd.print(String(current_bpm));
         } else {
-          lcd.setCursor(5, 0);
+          current_bpm = 0xffff;
           lcd.print("NaN");
+          lcd.setCursor(5, 1);
+          lcd.print("      ");
         }
       }
 
@@ -239,13 +242,41 @@ void display_task(sample_t& sample, beatDetector& beat_detector) {
       else
         lcd.write('@');
 
-
     }
   }
 
-
 }
 
+
+void spo2_calculate_display_task(float AC1, float DC1, float AC2, float DC2) {
+  lcd.setCursor(5, 1);
+
+  if ((last_AC1 != AC1 || last_AC2 != AC2) && (AC1 > 0) && (AC2 > 0) 
+      && current_bpm!=0xffff && display_mode == STATS_MODE) {
+    
+    // Serial.print("calculating spo2: ");
+    // Serial.print(AC1);
+    // Serial.print(", ");
+    // Serial.print(last_AC1);
+    // Serial.print(", ");
+    // Serial.print(AC2);
+    // Serial.print(", ");
+    // Serial.println(last_AC2);
+
+    float R = ((last_AC1 + AC1)/2/DC1)/((last_AC2 + AC2)/2/DC2);
+    float SpO2 = (spo2_a*R*R + spo2_b*R + spo2_c);
+    
+    if (SpO2 > 99.9) SpO2 = 99.9;
+    if (SpO2 < 75.0) SpO2 = 75.0;
+    lcd.print(String(SpO2, 1) + "%  ");
+    // else {
+    //   lcd.print("NaN    ");
+    // }
+    
+    last_AC1 = AC1;
+    last_AC2 = AC2;
+  }
+}
 
 void serial_publish_task(bool publish_t_dc = false, float extra_value = FLOAT_INVALID) {
   if (extra_value != FLOAT_INVALID) {
@@ -385,7 +416,11 @@ void loop() {
     display_task(ir_local, ir_beat_detector);
   }
 
+  if (red_update) 
+    red_beat_detector.step(red_local);
+
   if (red_update || ir_update) {    
+    spo2_calculate_display_task(red_beat_detector.v_last_peak, red_local.dc, ir_beat_detector.v_last_peak, ir_local.dc);
     serial_publish_task(false, ir_beat_detector.threshold);
   }
 

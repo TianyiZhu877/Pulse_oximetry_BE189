@@ -132,32 +132,18 @@ public:
         update_cell(lcd, cell_x, cell_y, idx, true);
     }
 
-
-
     uint8_t get_screen_width() {
         if (x_mode == PXIEL_EXTENDED_MODE)
             return CELL_WIDTH_E*NCOLS-1;
         return CELL_WIDTH*NCOLS;
     }
 
-    // uint8_t get_cell_width() {
-    //     if (x_mode == PXIEL_EXTENDED_MODE)
-    //         return CELL_WIDTH_E;
-    //     return CELL_WIDTH;
-    // }
 
     uint8_t get_screen_height() {
         if (y_mode == PXIEL_EXTENDED_MODE)
             return CELL_HEIGHT_E*NROWS-1;
         return CELL_HEIGHT*NROWS;
     }
-
-
-    // uint8_t get_cell_height() {
-    //     if (x_mode == PXIEL_EXTENDED_MODE)
-    //         return CELL_WIDTH_E;
-    //     return CELL_WIDTH;
-    // }
 
 
     byte buffer[NROWS*NCOLS*CELL_HEIGHT];
