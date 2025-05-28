@@ -1,4 +1,4 @@
-#include <util/atomic.h>
+  #include <util/atomic.h>
 #include "filters.h"
 #include "types.h"
 // #include "lcd.h"
@@ -72,8 +72,8 @@ const uint8_t screen_height = 16;
 // variables for display task
 uint8_t last_write_y = 0;
 uint8_t wave_frontier_x = 0;
-const int8_t    max_wave_amplitude = 16;
-const uint16_t  wave_display_period = 2000/screen_width;
+const int8_t    max_wave_amplitude = 12;
+const uint16_t  wave_display_period = 1000/screen_width;
 const uint16_t stats_display_period = 20;
 uint32_t last_display_update = 0;
 uint16_t  last_display_period = -1;
@@ -144,19 +144,11 @@ ISR(TIMER1_COMPA_vect) {
 
 void display_task(sample_t& sample, beatDetector& beat_detector) {
   if (display_mode == WAVE_MODE) {
-//    if (wave_frontier_column == 6) {
-//      line0[0] = 0xff;
-//      lcd.createChar(0, line0);
-//    }
-//    if (wave_frontier_column == 2) {
-//      line0[0] = 0;
-//      lcd.createChar(0, line0);
-//    }
+
     
     if (sample.t > last_display_update + wave_display_period) {
       last_display_update = sample.t;
 
-      // int16_t v_corrected = static_cast<int16_t>(sample.v) + max_wave_amplitude;
       int16_t v_corrected = static_cast<int16_t>(sample.v) + max_wave_amplitude;
       if (v_corrected < 0)
         v_corrected = 0;

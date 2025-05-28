@@ -23,9 +23,9 @@ struct getCellReturn_t {
 
 class lcdFramebuffer {
 public:
-    lcdFramebuffer(uint8_t x_mode = PXIEL_STANDARD_MODE, uint8_t y_mode = PXIEL_STANDARD_MODE) {
-        y_mode = y_mode;
-        x_mode = x_mode;
+    lcdFramebuffer(uint8_t x_mode_param = PXIEL_STANDARD_MODE, uint8_t y_mode_param = PXIEL_STANDARD_MODE) {
+        y_mode = y_mode_param;
+        x_mode = x_mode_param;
         reset_screen_buffer();
         reset_character_buffer();
     }
