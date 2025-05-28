@@ -73,7 +73,7 @@ const uint8_t screen_height = 16;
 // variables for display task
 uint8_t last_write_y = 0;
 uint8_t wave_frontier_x = 0;
-const int8_t    max_wave_amplitude = 8;
+const int8_t    max_wave_amplitude = 12;
 const uint16_t  wave_display_period = 1000/screen_width;
 const uint16_t stats_display_period = 20;
 uint32_t last_display_update = 0;
@@ -84,8 +84,17 @@ const float spo2_a = -3.3;
 const float spo2_b = -21.1;
 const float spo2_c = 109.6;
 float last_AC1, last_AC2;
+// health status
+#define HEALTH_HEALTHY          0
+#define HEALTH_HIGH_HPM         1
+#define HEALTH_VERY_HIGH_HPM    2
+#define HEALTH_LOW_SPO2         3
+#define HEALTH_CRITICAL_SPO2    4
+#define HEALTH_DEAD             5
+#define HEALTH_UNKNOWN          6
 
-
+String health_line0[] = {"^_^ ",  "o_o ", "@_@ ", "-_.`", "-_- ",  "x_x ", "?_? "};
+String health_line1[] = {"/ |",  "/u>", "/3!", "/ |", "/!|",  "/!|", "/*|"};
 
 inline void sample(sample_t& sample) {
   int sample_v = analogRead(sample_pin);
@@ -147,11 +156,16 @@ ISR(TIMER1_COMPA_vect) {
     isr_count = 0;
 }
 
+void draw_health_status(uint8_t status) {
+  lcd.setCursor(12, 0);
+  lcd.print(health_line0[status]);
+  lcd.setCursor(12, 1);
+  lcd.print(health_line1[status]);
+}
 
 void display_task(sample_t& sample, beatDetector& beat_detector) {
   if (display_mode == WAVE_MODE) {
 
-    
     if (sample.t > last_display_update + wave_display_period) {
       last_display_update = sample.t;
 
@@ -230,12 +244,13 @@ void display_task(sample_t& sample, beatDetector& beat_detector) {
           lcd.print("NaN");
           lcd.setCursor(5, 1);
           lcd.print("      ");
+          draw_health_status(HEALTH_UNKNOWN);
         }
       }
 
       
       lcd.setCursor(4, 0);
-      if (beat_detector.state == STATE_UPWARD)
+      if ((beat_detector.state == STATE_UPWARD) || (beat_detector.state == STATE_PENDING_DETECTION))
         lcd.write('o');
       else
         lcd.write('@');
@@ -270,10 +285,27 @@ void spo2_calculate_display_task(float AC1, float DC1, float AC2, float DC2) {
     // else {
     //   lcd.print("NaN    ");
     // }
+
+    uint8_t health_status;
+    if (current_bpm > 130)  
+      health_status = HEALTH_VERY_HIGH_HPM;
+    if (current_bpm < 40 || SpO2<80)  
+      health_status = HEALTH_DEAD;
+    else if (SpO2 < 85)  
+      health_status = HEALTH_CRITICAL_SPO2;
+    else if (current_bpm > 100)  
+      health_status = HEALTH_HIGH_HPM;
+    else if (SpO2 < 92)  
+      health_status = HEALTH_LOW_SPO2;
+    else
+      health_status = HEALTH_HEALTHY;
+    
+    draw_health_status(health_status);
     
     last_AC1 = AC1;
     last_AC2 = AC2;
   }
+
 }
 
 void serial_publish_task(bool publish_t_dc = false, float extra_value = FLOAT_INVALID) {
@@ -383,6 +415,9 @@ void setup() {
   lcd.init();
   lcd.backlight();
   set_stats_ui_background();
+  
+  health_line0[HEALTH_HIGH_HPM][3] = 0b11011110;
+  health_line0[HEALTH_VERY_HIGH_HPM][3] = 0b11011111;
 }
 
 void loop() {
