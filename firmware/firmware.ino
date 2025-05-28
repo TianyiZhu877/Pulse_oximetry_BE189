@@ -64,6 +64,7 @@ const uint16_t  wave_display_period = 2000/16;
 const uint16_t stats_display_period = 20;
 uint32_t last_display_update = 0;
 uint8_t wave_frontier_column = 0;
+uint16_t  last_display_period = -1;
 
 
 inline void sample(sample_t& sample) {
@@ -155,20 +156,26 @@ void display_task(sample_t& sample, beatDetector& beat_detector) {
     }
   }
   else if (display_mode == STATS_MODE) {
-    if (sample.t > last_display_update + stats_display_period) {
+    if (sample.t > last_display_update + stats_display_period ) {
       last_display_update = sample.t;
-
-      if (beat_detector.period > 60) {
-        uint16_t bpm = static_cast<uint16_t>(60000.0/beat_detector.period);
-        if (bpm >= 100)
+      
+      if (last_display_period != static_cast<uint16_t>(beat_detector.period)) {
+        last_display_period = static_cast<uint16_t>(beat_detector.period);
+        if (beat_detector.period > 60) {
+          uint16_t bpm = static_cast<uint16_t>(60000.0/beat_detector.period);
+          if (bpm >= 100)
+            lcd.setCursor(5, 0);
+          else {
+            lcd.setCursor(5, 0);
+            lcd.write(' ');
+            lcd.setCursor(6, 0);
+          }
+  
+          lcd.print(String(bpm));
+        } else {
           lcd.setCursor(5, 0);
-        else 
-          lcd.setCursor(6, 0);
-
-        lcd.print(String(bpm));
-      } else {
-        lcd.setCursor(5, 0);
-        lcd.print("NaN");
+          lcd.print("NaN");
+        }
       }
 
       
@@ -242,6 +249,7 @@ void button_service_task() {
         display_mode = STATS_MODE;
       }
       else if (display_mode == STATS_MODE) {
+        wave_frontier_column = 0;
         display_mode = WAVE_MODE;
       }
 
