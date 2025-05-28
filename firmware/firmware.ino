@@ -73,7 +73,7 @@ const uint8_t screen_height = 16;
 // variables for display task
 uint8_t last_write_y = 0;
 uint8_t wave_frontier_x = 0;
-const int8_t    max_wave_amplitude = 12;
+const int8_t    max_wave_amplitude = 8;
 const uint16_t  wave_display_period = 1000/screen_width;
 const uint16_t stats_display_period = 20;
 uint32_t last_display_update = 0;
@@ -198,15 +198,13 @@ void display_task(sample_t& sample, beatDetector& beat_detector) {
         frame_buffer.clear_cell_in_pixel_buffer(next_cell_x, 1);
       }
       
-      if (coord.pixel_x == 0) {
+      if (coord.pixel_x >= 0 && coord.pixel_x < 4) {
         // would need to refresh the screen
-        frame_buffer.reset_character_buffer();
-        for (uint8_t i=0; i<4; i++) {
-          int8_t cell_x = ((int8_t)(coord.cell_x) + NCOLS + refresh_x_offsets[i])%NCOLS;
-          int8_t old_cell_x = ((int8_t)(coord.cell_x) + NCOLS + refresh_x_offsets[i] - 1)%NCOLS;
-           frame_buffer.move_idx(lcd, old_cell_x, 0, cell_x, 0, i*2);
-           frame_buffer.move_idx(lcd, old_cell_x, 1, cell_x, 1, i*2+1);
-        }
+        // frame_buffer.reset_character_buffer();
+        int8_t cell_x = ((int8_t)(coord.cell_x) + NCOLS + refresh_x_offsets[coord.pixel_x])%NCOLS;
+        int8_t old_cell_x = ((int8_t)(coord.cell_x) + NCOLS + refresh_x_offsets[coord.pixel_x] - 1)%NCOLS;
+        frame_buffer.move_idx(lcd, old_cell_x, 0, cell_x, 0, coord.pixel_x*2);
+        frame_buffer.move_idx(lcd, old_cell_x, 1, cell_x, 1, coord.pixel_x*2+1);
       }
 
       wave_frontier_x = wave_frontier_x+1;
