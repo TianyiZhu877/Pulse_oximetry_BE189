@@ -1,7 +1,7 @@
-#include <LiquidCrystal_I2C.h>
-
 #ifndef LCD_FRAME_BUFFER_H
 #define LCD_FRAME_BUFFER_H
+
+#include <LiquidCrystal_I2C.h>
 
 #define PXIEL_EXTENDED_MODE     0
 #define PXIEL_STANDARD_MODE     1
@@ -41,7 +41,6 @@ public:
     void set_pixel(uint8_t x, uint8_t y) {
         getCellReturn_t coords;
         get_cell(coords, x, y);
-
 
         // row major order
         if (coords.pixel_x < CELL_WIDTH && coords.pixel_y < CELL_HEIGHT) {
@@ -95,7 +94,7 @@ public:
 
     }
 
-    // will not update character buffer or lcd screen!!
+    // will not update character buffer or refresh lcd screen!!
     void clear_cell_in_pixel_buffer(uint8_t cell_x, uint8_t cell_y) {
         uint16_t buffer_idx = cell_x * CELL_HEIGHT * NROWS + cell_y * CELL_HEIGHT;
         for (uint8_t i=0; i<CELL_HEIGHT; i++) {

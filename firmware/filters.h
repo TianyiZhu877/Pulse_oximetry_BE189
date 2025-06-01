@@ -17,8 +17,8 @@ public:
 
     butterWorthLPF() {  
     // default fc = 5, fs = 80
-        cf0 = 0.16591068104035050501;        
-        cf1 = 0.66817863791929898998;  
+        cf0 = 0.16591068104;        
+        cf1 = 0.6681786379193;  
     }
     
     float step(float x) //class II 

@@ -14,14 +14,14 @@
 const bool inverted = true;
 const int analog_max = 1023;
 
-// pin definition
+// pins
 const int sample_pin = A0;
 const int red_led_pin = 7;
 const int ir_led_pin = 6;
 
 // constant for sampling
 const uint8_t prescaler = 64;
-const uint16_t base_f = 80;
+const uint16_t base_sample_f = 80;
 const uint8_t red_divider = 1;
 const uint8_t ir_divider = 1;
 uint8_t dividers[2] = {red_divider, ir_divider};
@@ -29,7 +29,7 @@ const float CPU_F = 16e6;
 
 
 // global variables for ISR
-const int isr_period = red_divider * ir_divider * 2;
+const int isr_count_reset = red_divider * ir_divider * 2;
 uint16_t isr_count = 0;
 // global variables for loop
 uint32_t last_red_sample_time  = 0;
@@ -92,9 +92,8 @@ float last_AC1, last_AC2;
 #define HEALTH_CRITICAL_SPO2    4
 #define HEALTH_DEAD             5
 #define HEALTH_UNKNOWN          6
-
 String health_line0[] = {"^_^ ",  "o_o ", "@_@ ", "-_.`", "-_- ",  "x_x ", "?_? "};
-String health_line1[] = {"/ |",  "/u>", "/3!", "/ |", "/!|",  "/!|", "/*|"};
+String health_line1[] = {"/ |",   "/u>",  "/3!",  "/ |",  "/!|",   "/!|",  "/*|"};
 
 inline void sample(sample_t& sample) {
   int sample_v = analogRead(sample_pin);
@@ -152,7 +151,7 @@ ISR(TIMER1_COMPA_vect) {
   }
   
   isr_count += 1;
-  if (isr_count == isr_period) 
+  if (isr_count == isr_count_reset) 
     isr_count = 0;
 }
 
@@ -165,7 +164,7 @@ void draw_health_status(uint8_t status) {
 
 void display_task(sample_t& sample, beatDetector& beat_detector) {
   if (display_mode == WAVE_MODE) {
-
+  // display the pulse wave with lcd frame buffer class
     if (sample.t > last_display_update + wave_display_period) {
       last_display_update = sample.t;
 
@@ -184,27 +183,15 @@ void display_task(sample_t& sample, beatDetector& beat_detector) {
         for (uint8_t y = last_write_y+1; y<=write_y; ++y) {
           frame_buffer.get_cell(coord, 0xFF, y);
           frame_buffer.set_pixel(coord);
-          // Serial.print(y);
-          // Serial.print(" -> ");
-          // Serial.println(write_y);
         }
 
       if (write_y < last_write_y)
         for (uint8_t y = last_write_y-1; y>write_y; --y) {
           frame_buffer.get_cell(coord, 0xFF, y);
           frame_buffer.set_pixel(coord);
-          // Serial.print(y);
-          // Serial.print(" -> ");
-          // Serial.println(write_y);
         }
 
       last_write_y = write_y;
-
-
-      // if (coord.pixel_x == 5) {
-      //   // display what's on the screen buffer
-      //   frame_buffer.refresh_screen(lcd);
-      // }
 
       if (coord.pixel_x == 4) {
         uint8_t next_cell_x = (coord.cell_x+1)%NCOLS;
@@ -221,13 +208,14 @@ void display_task(sample_t& sample, beatDetector& beat_detector) {
         frame_buffer.move_idx(lcd, old_cell_x, 1, cell_x, 1, coord.pixel_x*2+1);
       }
 
-      wave_frontier_x = wave_frontier_x+1;
+      wave_frontier_x++;
       if (wave_frontier_x > screen_width)
         wave_frontier_x = 0;
     }
   }
 
   else if (display_mode == STATS_MODE) {
+  // display heart rate
     if (sample.t > last_display_update + stats_display_period ) {
       last_display_update = sample.t;
       
@@ -248,13 +236,11 @@ void display_task(sample_t& sample, beatDetector& beat_detector) {
         }
       }
 
-      
       lcd.setCursor(4, 0);
       if ((beat_detector.state == STATE_UPWARD) || (beat_detector.state == STATE_PENDING_DETECTION))
         lcd.write('o');
       else
         lcd.write('@');
-
     }
   }
 
@@ -266,15 +252,6 @@ void spo2_calculate_display_task(float AC1, float DC1, float AC2, float DC2) {
 
   if ((last_AC1 != AC1 || last_AC2 != AC2) && (AC1 > 0) && (AC2 > 0) 
       && current_bpm!=0xffff && display_mode == STATS_MODE) {
-    
-    // Serial.print("calculating spo2: ");
-    // Serial.print(AC1);
-    // Serial.print(", ");
-    // Serial.print(last_AC1);
-    // Serial.print(", ");
-    // Serial.print(AC2);
-    // Serial.print(", ");
-    // Serial.println(last_AC2);
 
     float R = ((last_AC1 + AC1)/2/DC1)/((last_AC2 + AC2)/2/DC2);
     float SpO2 = (spo2_a*R*R + spo2_b*R + spo2_c);
@@ -282,18 +259,15 @@ void spo2_calculate_display_task(float AC1, float DC1, float AC2, float DC2) {
     if (SpO2 > 99.9) SpO2 = 99.9;
     if (SpO2 < 75.0) SpO2 = 75.0;
     lcd.print(String(SpO2, 1) + "%  ");
-    // else {
-    //   lcd.print("NaN    ");
-    // }
 
     uint8_t health_status;
-    if (current_bpm > 130)  
+    if (current_bpm > 128)  
       health_status = HEALTH_VERY_HIGH_HPM;
     if (current_bpm < 40 || SpO2<80)  
       health_status = HEALTH_DEAD;
     else if (SpO2 < 85)  
       health_status = HEALTH_CRITICAL_SPO2;
-    else if (current_bpm > 100)  
+    else if (current_bpm > 108)  
       health_status = HEALTH_HIGH_HPM;
     else if (SpO2 < 92)  
       health_status = HEALTH_LOW_SPO2;
@@ -320,6 +294,7 @@ void serial_publish_task(bool publish_t_dc = false, float extra_value = FLOAT_IN
     Serial.print(red_local.dc);
     Serial.print(',');
   }
+  
   Serial.print(red_local.v);
   Serial.print(',');
 
@@ -330,7 +305,6 @@ void serial_publish_task(bool publish_t_dc = false, float extra_value = FLOAT_IN
     Serial.print(',');
   }
   Serial.println(ir_local.v);
-
 }
 
 void set_stats_ui_background() {
@@ -347,17 +321,6 @@ void button_service_task() {
 
   if ((!prev_button_pressed) && current_button && (currTime - last_button_time > debouncingDelay)) {
     
-    // Serial.print(buttons_pind & ALL_BUTTONS, BIN);
-    // Serial.print(", buttons pressed: ");
-    // Serial.println(buttons_pind, BIN);
-    // if (buttons_pind & HOLD_BUTTON) {
-    //   if (hold_state == UPDATING_DISPLAY)  
-    //     transit_to_holding();
-    //   else if (hold_state == HOLDING) 
-    //     transit_to_updating_display();
-
-    // }
-    
     if (buttons_pind & DISPLAY_MODE_BUTTON) {
       if (display_mode == WAVE_MODE)  {
         set_stats_ui_background();
@@ -367,7 +330,6 @@ void button_service_task() {
         wave_frontier_x = 0;
         display_mode = WAVE_MODE;
       }
-
     }
 
     last_button_time = currTime;
@@ -380,15 +342,13 @@ void button_service_task() {
 void setup() {
   Serial.begin(115200);
   
-  float ocr1a_f = CPU_F / prescaler / base_f / 2 - 1;
-//  Serial.print("ocr1a: ");
-//  Serial.println((uint16_t)ocr1a_f);
+  float ocr1a_f = CPU_F / prescaler / base_sample_f / 2 - 1;
 
   pinMode(red_led_pin, OUTPUT); 
   pinMode(ir_led_pin, OUTPUT); 
   
   DDRD &= ~ALL_BUTTONS;
-  PORTD |= ALL_BUTTONS;       // set buttons to input-pullup
+  PORTD |= ALL_BUTTONS;       // set button pins to input-pullup
 
   // put your setup code here, to run once:
   noInterrupts();           // Disable interrupts during config
